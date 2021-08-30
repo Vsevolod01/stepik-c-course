@@ -13,6 +13,13 @@
 
 size_t STACK_CAPACITY = 4096;
 
+struct maybe_int64 maybe_read_int64() {
+    int64_t x;
+    int valid = scanf("%" SCNd64, &x);
+    if (valid == 0 || valid == EOF) return none_int64;
+    else return some_int64(x);
+}
+
 static int64_t i64_add(int64_t a, int64_t b) { return a + b; }
 static int64_t i64_sub(int64_t a, int64_t b) { return a - b; }
 static int64_t i64_mul(int64_t a, int64_t b) { return a * b; }
@@ -89,29 +96,40 @@ struct vm_state {
 // Вместимость стека задаётся препроцессорным определением STACK_CAPACITY
 struct vm_state
 state_create( union ins* ip ) {
-  ???
+    return (struct vm_state) { .ip = ip, .data_stack = stack_create(STACK_CAPACITY) };
 }
 void
 state_destroy( struct vm_state * state ) {
-  ???
+    stack_destroy(&state->data_stack);
 }
 
 // Эти функции поднимают операции над числами на уровень стековых операций
 // lift_unop применяет операцию к вершине стека;
 void lift_unop( struct stack* s, int64_t (f)(int64_t))
 {
-  ???
+    struct maybe_int64 a = stack_pop(s);
+    if (a.valid) {
+        int64_t result = f(a.value);
+        stack_push(s, result);
+    }
 }
 // lift_binop забирает из стека два аргумента,
 // применяет к ним функцию от двух переменных и возвращает в стек результат
 // Это позволяет единообразно реализовать команды IADD, ISUB, IMUL, ICMP и др.
 void lift_binop( struct stack* s, int64_t (f)(int64_t, int64_t))
 {
-  ???
+    struct maybe_int64 a = stack_pop(s);
+    struct maybe_int64 b = stack_pop(s);
+    if (a.valid && b.valid) {
+        int64_t result = f(b.value, a.value);
+        stack_push(s, result);
+    }
 }
 
 // Интерпретатор каждой инструкции это функция над состоянием машины
 // Определите тип такой функции по имени ins_interpreter
+
+typedef void ins_interpreter(struct vm_state*);
 
 void interpret(struct vm_state* state, ins_interpreter * const  (actions)[]) {
   for (;;) {
@@ -131,25 +149,44 @@ void interpret_program( union ins* program, ins_interpreter * const  (actions)[]
 
 /*  Интерпретаторы команд */
 void interpret_push  ( struct vm_state* state ) {
-  ???
+    stack_push(&state->data_stack, state->ip->as_arg64.arg);
 }
 
 void interpret_iprint( struct vm_state* state ) {
-  ???
+    for (size_t i = 0; i < state->data_stack.count; i++) {
+        print_int64(state->data_stack.data.data[i]);
+        printf(" ");
+    }
 }
 void interpret_iread ( struct vm_state* state ) {
-  ???
+    struct maybe_int64 a = maybe_read_int64();
+    stack_push(&state->data_stack, a.value);
 }
 
 void interpret_swap  ( struct vm_state* state )  {
-  ???
+    struct maybe_int64 a = stack_pop(&state->data_stack);
+    struct maybe_int64 b = stack_pop(&state->data_stack);
+    if (a.valid && b.valid) {
+        stack_push(&state->data_stack, a.value);
+        stack_push(&state->data_stack, b.value);
+    }
+    else {
+        err("SWAP doesn't work");
+    }
 }
 
 void interpret_pop   ( struct vm_state* state )  {
-  ???
+    stack_pop(&state->data_stack);
 }
 void interpret_dup   ( struct vm_state* state )  {
-  ???
+    struct maybe_int64 a = stack_pop(&state->data_stack);
+    if (a.valid) {
+        stack_push(&state->data_stack, a.value);
+        stack_push(&state->data_stack, a.value);
+    }
+    else {
+        err("DUP doesn't work");
+    }
 }
 
 void interpret_stop  ( struct vm_state* state )  { vm_stop( state );  }
@@ -204,8 +241,65 @@ ins_interpreter* const ins_interpreters[] = {
   Подсказка: да, потребуются ещё функции
 */
 
+/*  Принтеры команд */
+void print_push  ( struct vm_state* state ) {
+    printf("push ");
+    print_int64(state->ip->as_arg64.arg);
+    print_newline();
+}
+
+void print_iprint( struct vm_state* state ) {
+    printf("iprint");
+    print_newline();
+}
+void print_iread ( struct vm_state* state ) {
+    printf("iread");
+    print_newline();
+}
+
+void print_swap  ( struct vm_state* state )  {
+    printf("swap");
+    print_newline();
+}
+
+void print_pop   ( struct vm_state* state )  {
+    printf("pop");
+    print_newline();
+}
+void print_dup   ( struct vm_state* state )  {
+    printf("dup");
+    print_newline();
+}
+
+void print_stop  ( struct vm_state* state )  {
+    printf("stop");
+    print_newline();
+    vm_stop(state);
+}
+
+/*  Чтобы заработали эти функции необходимо реализовать lift_binop и lift_unop */
+
+void print_iadd  ( struct vm_state* state );
+void print_isub  ( struct vm_state* state );
+void print_imul  ( struct vm_state* state );
+void print_idiv  ( struct vm_state* state );
+void print_ineg  ( struct vm_state* state );
+void print_icmp  ( struct vm_state* state );
+
 static ins_interpreter* const ins_printers[] = {
-  ???
+        [BC_PUSH]   = print_push,
+        [BC_IADD]   = print_iadd,
+        [BC_ISUB]   = print_isub,
+        [BC_IMUL]   = print_imul,
+        [BC_IDIV]   = print_idiv,
+        [BC_INEG]   = print_ineg,
+        [BC_IPRINT] = print_iprint,
+        [BC_IREAD]  = print_iread,
+        [BC_SWAP]   = print_swap,
+        [BC_POP]    = print_pop,
+        [BC_DUP]    = print_dup,
+        [BC_ICMP]   = print_icmp,
+        [BC_STOP]   = print_stop
 };
 
 // --- конец решения на Stepik ---
@@ -229,6 +323,13 @@ void interpret_imul  ( struct vm_state* state )  {lift_binop(& state->data_stack
 void interpret_idiv  ( struct vm_state* state )  {lift_binop(& state->data_stack, i64_div); }
 void interpret_ineg  ( struct vm_state* state )  {lift_unop(& state->data_stack, i64_neg); }
 void interpret_icmp  ( struct vm_state* state )  { lift_binop(& state->data_stack, i64_cmp); }
+
+void print_iadd  ( struct vm_state* state )  {printf("iadd\n"); }
+void print_isub  ( struct vm_state* state )  {printf("isub\n"); }
+void print_imul  ( struct vm_state* state )  {printf("imul\n"); }
+void print_idiv  ( struct vm_state* state )  {printf("idiv\n"); }
+void print_ineg  ( struct vm_state* state )  {printf("ineg\n"); }
+void print_icmp  ( struct vm_state* state )  { printf("icmp\n"); }
 
 #undef int
 
